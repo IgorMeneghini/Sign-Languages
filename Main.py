@@ -1,33 +1,75 @@
 import cv2
-from cvzone.HandTrackingModule import HandDetector
+import mediapipe as mp
 
-video = cv2.VideoCapture(0)
-detector = HandDetector(detectionCon=0.8, maxHands=2)
+def initialize_mediapipe():
+    mp_drawing = mp.solutions.drawing_utils
+    mp_hands = mp.solutions.hands
+    hands = mp_hands.Hands()
+    return mp_drawing, mp_hands, hands
 
-while True:
-    ret, frame = video.read()
-    hands, frame = detector.findHands(frame)
+def open_camera():
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        print("Unable to open camera")
+        exit()
+    return cap
 
-    if hands:
-        # Access hand information if hands are detected
-        for hand in hands:
-            # Access hand attributes like hand type, bounding box, landmarks, etc.
-            handType = hand["type"]  # "Left" or "Right"
-            lmList = hand["lmList"]  # List of 21 landmarks
-            bbox = hand["bbox"]      # Bounding box coordinates (x, y, w, h)
+def count_raised_fingers(mp_hands,hand_landmarks):
+    finger_points = [mp_hands.HandLandmark.INDEX_FINGER_TIP,
+                     mp_hands.HandLandmark.MIDDLE_FINGER_TIP,
+                     mp_hands.HandLandmark.RING_FINGER_TIP,
+                     mp_hands.HandLandmark.PINKY_TIP]
 
-            # Example: Draw a rectangle around the hand
-            x, y, w, h = bbox
-            cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 0, 0), 2)
+    raised_fingers = 0
 
-            # Example: Draw landmarks on the hand
-            for point in lmList:
-                cv2.circle(frame, point, 5, (0, 255, 0), -1)
+    for point in finger_points:
+        if hand_landmarks.landmark[point].y < hand_landmarks.landmark[mp_hands.HandLandmark.PINKY_MCP].y:
+            raised_fingers += 1
 
-    cv2.imshow('frame', frame)
+    return raised_fingers
 
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
+def Main():
+    mp_drawing, mp_hands, hands = initialize_mediapipe()
+    cap = open_camera()
 
-video.release()
-cv2.destroyAllWindows()
+    window_name = "Hand Tracking"
+
+    while True:
+        ret, frame = cap.read()
+
+        if not ret:
+            print("Don't have frames available")
+            break
+
+        color = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+        results = hands.process(color)
+
+        if results.multi_hand_landmarks:
+            for hand_landmarks in results.multi_hand_landmarks:
+                for idx, landmark in enumerate(hand_landmarks.landmark):
+                    height, width, _ = frame.shape
+                    cx, cy = int(landmark.x * width), int(landmark.y * height)
+                    print(f'point {idx}: ({cx}, {cy})')
+
+                raised_fingers_count = count_raised_fingers(mp_hands,hand_landmarks)
+                print(f'fingers up: {raised_fingers_count}')
+
+                mp_drawing.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+
+        cv2.imshow(window_name, frame)
+
+        key = cv2.waitKey(1)
+
+        if key == ord('q'):
+            break
+
+        if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
+            break
+
+    cv2.destroyAllWindows()
+    cap.release()
+    print("Closed")
+
+if __name__ == "__main__":
+    Main()
